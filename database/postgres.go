@@ -20,8 +20,34 @@ RUN chown postgres:postgres /pg-certs/postgres.cas /pg-certs/postgres.crt /pg-ce
     && chmod 600 /pg-certs/postgres.key
 
 COPY pg_hba.conf /etc/postgresql/pg_hba.conf
+COPY init.sql /docker-entrypoint-initdb.d/init.sql
 
 EXPOSE 5432
+`
+
+const postgresInitSQL = `CREATE ROLE writer;
+CREATE ROLE reader;
+
+CREATE SCHEMA app;
+CREATE SCHEMA archive;
+
+CREATE TABLE app.users    (id INT, name TEXT, email TEXT);
+CREATE TABLE app.products (id INT, name TEXT, price INT);
+CREATE TABLE archive.events    (id INT, name TEXT, description TEXT);
+CREATE TABLE archive.snapshots (id INT, data TEXT);
+
+INSERT INTO app.users    VALUES (1,'Alice','alice@example.com'),(2,'Bob','bob@example.com'),(3,'Charlie','charlie@example.com');
+INSERT INTO app.products VALUES (1,'Widget',9),(2,'Gadget',42),(3,'Doohickey',7);
+INSERT INTO archive.events    VALUES (1,'launch','Product launch'),(2,'update','Software update'),(3,'maintenance','Scheduled maintenance');
+INSERT INTO archive.snapshots VALUES (1,'snapshot-a'),(2,'snapshot-b');
+
+GRANT USAGE, CREATE ON SCHEMA app TO writer;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA app TO writer;
+
+GRANT USAGE ON SCHEMA app TO reader;
+GRANT SELECT ON ALL TABLES IN SCHEMA app TO reader;
+
+CREATE USER "teleport-admin" SUPERUSER;
 `
 
 const postgresHBAConf = `# TYPE  DATABASE  USER  ADDRESS    METHOD
@@ -48,6 +74,10 @@ func (p *Postgres) Up() error {
 
 	if err := os.WriteFile(filepath.Join(dir, "pg_hba.conf"), []byte(postgresHBAConf), 0644); err != nil {
 		return fmt.Errorf("writing pg_hba.conf: %w", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "init.sql"), []byte(postgresInitSQL), 0644); err != nil {
+		return fmt.Errorf("writing init.sql: %w", err)
 	}
 
 	fmt.Println("generating postgres certificates...")

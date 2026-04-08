@@ -38,41 +38,49 @@ security:
 
 const mongodbInitJS = `db.getSiblingDB("admin").runCommand({
   createRole: "teleport-admin-role",
-  privileges: [
-    {
-      resource: { anyResource: true },
-      actions: [ "anyAction" ]
-    }
-  ],
+  privileges: [{ resource: { anyResource: true }, actions: ["anyAction"] }],
   roles: [],
 });
 db.getSiblingDB("$external").runCommand({
   createUser: "CN=teleport-admin",
+  roles: [{ role: "teleport-admin-role", db: "admin" }],
+});
+
+const appDb = db.getSiblingDB("app");
+appDb.users.insertMany([
+  { id: 1, name: "Alice",   email: "alice@example.com"   },
+  { id: 2, name: "Bob",     email: "bob@example.com"     },
+  { id: 3, name: "Charlie", email: "charlie@example.com" },
+]);
+appDb.products.insertMany([
+  { id: 1, name: "Widget",    price: 9  },
+  { id: 2, name: "Gadget",    price: 42 },
+  { id: 3, name: "Doohickey", price: 7  },
+]);
+appDb.runCommand({
+  createRole: "writer",
+  privileges: [],
   roles: [
-    {
-      role: 'teleport-admin-role',
-      db: 'admin'
-    }
+    { role: "readWrite", db: "app" },
+    { role: "dbAdmin",   db: "app" },
   ],
 });
-
-db = db.getSiblingDB("test");
-db.getSiblingDB("test").runCommand({
-  createRole: "creator",
-  privileges: [
-    {
-      resource: { anyResource: true },
-      actions: [ "anyAction" ]
-    }
-  ]
-})
-
-db.createCollection("example_table");
-db.example_table.insertOne({
-  name: "sample",
-  description: "Initial test document",
-  created_at: new Date()
+appDb.runCommand({
+  createRole: "reader",
+  privileges: [],
+  roles: [{ role: "read", db: "app" }],
 });
+
+const archiveDb = db.getSiblingDB("archive");
+archiveDb.events.insertMany([
+  { id: 1, name: "launch",      description: "Product launch"        },
+  { id: 2, name: "update",      description: "Software update"       },
+  { id: 3, name: "maintenance", description: "Scheduled maintenance" },
+]);
+archiveDb.snapshots.insertMany([
+  { id: 1, data: "snapshot-a" },
+  { id: 2, data: "snapshot-b" },
+]);
 `
 
 type MongoDB struct {

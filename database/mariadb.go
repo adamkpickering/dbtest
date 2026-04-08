@@ -33,24 +33,33 @@ ssl-cert=/certs/mariadb.crt
 ssl-key=/certs/mariadb.key
 `
 
-const mariadbInitSQL = `CREATE DATABASE ` + "`teleport`" + `;
-CREATE DATABASE ` + "`public`" + `;
+const mariadbInitSQL = `CREATE DATABASE teleport;
+CREATE DATABASE app;
+CREATE DATABASE archive;
+
+CREATE TABLE app.users    (id INT, name TEXT, email TEXT);
+CREATE TABLE app.products (id INT, name TEXT, price INT);
+CREATE TABLE archive.events    (id INT, name TEXT, description TEXT);
+CREATE TABLE archive.snapshots (id INT, data TEXT);
+
+INSERT INTO app.users    VALUES (1,'Alice','alice@example.com'),(2,'Bob','bob@example.com'),(3,'Charlie','charlie@example.com');
+INSERT INTO app.products VALUES (1,'Widget',9),(2,'Gadget',42),(3,'Doohickey',7);
+INSERT INTO archive.events    VALUES (1,'launch','Product launch'),(2,'update','Software update'),(3,'maintenance','Scheduled maintenance');
+INSERT INTO archive.snapshots VALUES (1,'snapshot-a'),(2,'snapshot-b');
+
+-- WITH ADMIN required so teleport-admin can grant these roles to auto-provisioned users.
+CREATE ROLE writer WITH ADMIN 'teleport-admin';
+GRANT CREATE, SELECT, INSERT, UPDATE, DELETE ON app.* TO writer;
+
+CREATE ROLE reader WITH ADMIN 'teleport-admin';
+GRANT SELECT ON app.* TO reader;
 
 CREATE USER 'teleport-admin'@'%' REQUIRE SUBJECT '/CN=teleport-admin';
-GRANT PROCESS, CREATE USER ON *.* TO 'teleport-admin';
-GRANT SELECT ON mysql.roles_mapping TO 'teleport-admin';
-GRANT UPDATE ON mysql.* TO 'teleport-admin';
-GRANT SELECT ON *.* TO 'teleport-admin';
-GRANT ALL ON ` + "`teleport`" + `.* TO 'teleport-admin' WITH GRANT OPTION;
-
-CREATE ROLE creator WITH ADMIN 'teleport-admin';
-GRANT CREATE ON ` + "`public`" + `.* TO creator;
-GRANT SELECT ON ` + "`public`" + `.* TO creator;
-
-CREATE TABLE public.example_table (
-    id SERIAL PRIMARY KEY,
-    name TEXT NOT NULL
-);
+GRANT PROCESS, CREATE USER ON *.* TO 'teleport-admin'@'%';
+GRANT SELECT ON mysql.roles_mapping TO 'teleport-admin'@'%';
+GRANT UPDATE ON mysql.* TO 'teleport-admin'@'%';
+GRANT SELECT ON *.* TO 'teleport-admin'@'%';
+GRANT ALL ON teleport.* TO 'teleport-admin'@'%' WITH GRANT OPTION;
 `
 
 type MariaDB struct {
