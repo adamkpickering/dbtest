@@ -1,0 +1,12 @@
+kind: role
+version: v7
+metadata:
+  name: specific-db-label
+spec:
+  allow:
+    db_labels:
+      database_type: postgres
+    db_names:
+      - "*"
+    db_users:
+      - "*"

@@ -1,0 +1,15 @@
+kind: role
+version: v7
+metadata:
+  name: aup-keep
+spec:
+  options:
+    create_db_user_mode: keep
+  allow:
+    db_labels:
+      "*": "*"
+    db_names:
+    - "*"
+    db_roles:
+    - creator
+

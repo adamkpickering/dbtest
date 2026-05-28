@@ -1,0 +1,12 @@
+ca.crt
+ca.key
+ca.srl
+db-client-ca.crt
+combined.crt
+client.crt
+client.csr
+client.key
+ssl-client.conf
+ssl-ca.conf
+teleport.yaml
+*-redis-cluster-*

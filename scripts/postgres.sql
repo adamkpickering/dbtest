@@ -1,0 +1,6 @@
+CREATE USER "teleport-admin" WITH SUPERUSER;
+
+CREATE ROLE "creator";
+GRANT CREATE ON SCHEMA public TO "creator";
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO "creator";
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO "creator";

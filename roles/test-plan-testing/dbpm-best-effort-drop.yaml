@@ -1,0 +1,20 @@
+kind: role
+version: v7
+metadata:
+  name: dbpm-best-effort-drop
+spec:
+  options:
+    create_db_user_mode: best_effort_drop
+  allow:
+    db_labels:
+      "*": "*"
+    db_names:
+    - "*"
+    db_permissions:
+    - match:
+        allowed: "true"
+      permissions:
+        - SELECT
+        - INSERT
+        - UPDATE
+        - DELETE

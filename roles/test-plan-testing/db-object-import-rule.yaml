@@ -1,0 +1,31 @@
+kind: db_object_import_rule
+version: v1
+metadata:
+  name: import-all
+spec:
+  database_labels:
+    - name: '*'
+      values:
+      - '*'
+  mappings:
+    - scope:
+        schema_names:
+          - 'public'
+      match:
+        table_names:
+          - 'allowed_*'
+        view_names:
+          - 'allowed_*'
+      add_labels:
+        allowed: "true"
+    - scope:
+        schema_names:
+          - 'public'
+      match:
+        table_names:
+          - 'disallowed_*'
+        view_names:
+          - 'disallowed_*'
+      add_labels:
+        allowed: "false"
+  priority: 100
