@@ -170,10 +170,10 @@ CMD [\"teleport\", \"start\"]"
   print $"starting ($image_name) container..."
   docker run --quiet --detach --network $cluster_namespace --publish $"($proxy_port):($proxy_port)" --name $image_name $image_name | ignore
 
-  sleep 3sec # give teleport some time to start up
-  create-teleport-user teleport-admin
-
   cd ..
+
+  sleep 3sec # give teleport some time to start up before creating users
+  create-teleport-user teleport-admin
 }
 
 def wipe-teleport [] {
@@ -190,27 +190,45 @@ def wipe-teleport [] {
   cd ..
 }
 
-def create-teleport-user [username: string] {
+def create-teleport-user [username: string, password: string = "asdfasdfasdf"] {
   let image_name = $proxy_hostname
-  let identity_path = $"/tmp/($username).identity"
+  let proxy = $"localhost:($proxy_port)"
 
   print $"adding ($username) user..."
-  docker exec $image_name sudo tctl users add $username
-    --roles=editor,access,auditor
-    --logins=root,ubuntu
-    --db-users='*'
-    --db-names='*' | ignore
+  let out = (docker exec $image_name sudo tctl users add $username
+               --roles=editor,access,auditor
+               --logins=root,ubuntu
+               --db-users='*' --db-names='*' | complete)
+  let token = ($out.stdout | parse --regex 'invite/(?<t>\w+)' | get t.0)
+
+  print $"fetching TOTP registration challenge for ($username)..."
+  let challenge = (http post $"https://($proxy)/v1/webapi/mfa/token/($token)/registerchallenge"
+    --content-type application/json
+    {deviceType: "totp", deviceUsage: "mfa"})
+
+  $challenge.totp.qrCode | decode base64 | save --force /tmp/tp-qr.png
+  let otpauth = (zbarimg --quiet --raw /tmp/tp-qr.png | str trim)
+  let secret = ($otpauth | parse --regex 'secret=(?<s>[A-Z2-7]+)' | get s.0)
+
+  let code = (oathtool --totp -b $secret | str trim)
+
+  print $"completing registration for ($username)..."
+  (http put $"https://($proxy)/v1/webapi/users/password/token"
+    --content-type application/json
+    {
+      token: $token
+      password: ($password | encode base64)
+      second_factor_token: $code
+      device_name: "scripted-totp"
+    })
 
   print $"creating identity file for ($username)..."
-  docker exec $image_name sudo tctl auth sign
-    --user=$username
-    --out=$identity_path
-    --format=file
-    --ttl=2160h | ignore
+  let container_identity_path = $"/tmp/($username).identity"
+  let local_identity_path = $"teleport/($username).identity"
+  docker exec $image_name sudo tctl auth sign --user $username --out $container_identity_path --format=file --ttl=2160h o+e>| ignore
+  docker cp $"($image_name):($container_identity_path)" $local_identity_path | ignore
 
-  docker cp $"($image_name):($identity_path)" $"($username).identity"
-
-  print "logging in via tsh..."
+  print $"created user ($username); use identity file ($local_identity_path) to login"
 }
 
 def ensure-redis-cluster [] {

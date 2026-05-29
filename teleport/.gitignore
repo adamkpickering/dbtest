@@ -1,3 +1,4 @@
 *.pem
 Dockerfile
 teleport.yaml
+*.identity
