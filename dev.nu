@@ -64,10 +64,19 @@ def check-binaries [] {
   }
 }
 
+def check-host-utilities [] {
+  for utility in [oathtool zbarimg] {
+    if (which $utility | is-empty) {
+      error make {msg: $"required utility not found: ($utility) — install with: brew install oath-toolkit zbar"}
+    }
+  }
+}
+
 def ensure-teleport [] {
   let image_name = $proxy_hostname
 
   check-binaries
+  check-host-utilities
 
   cd teleport
 
@@ -162,9 +171,7 @@ CMD [\"teleport\", \"start\"]"
   docker run --quiet --detach --network $cluster_namespace --publish 3080:3080 --name $image_name $image_name | ignore
 
   sleep 3sec # give teleport some time to start up
-  docker exec $image_name sudo tctl users add teleport-admin --roles=editor,access,auditor --logins=root,ubuntu --db-users='*' --db-names='*'
-
-  print "\nNext step: create a login for your teleport cluster, and log in via tsh"
+  create-teleport-user teleport-admin
 
   cd ..
 }
@@ -179,8 +186,31 @@ def wipe-teleport [] {
 
   cd teleport
   print "wiping teleport directory..."
-  rm --force *.pem Dockerfile teleport.yaml
+  rm --force *.pem Dockerfile teleport.yaml teleport-admin.identity
   cd ..
+}
+
+def create-teleport-user [username: string] {
+  let image_name = $proxy_hostname
+  let identity_path = $"/tmp/($username).identity"
+
+  print $"adding ($username) user..."
+  docker exec $image_name sudo tctl users add $username
+    --roles=editor,access,auditor
+    --logins=root,ubuntu
+    --db-users='*'
+    --db-names='*' | ignore
+
+  print $"creating identity file for ($username)..."
+  docker exec $image_name sudo tctl auth sign
+    --user=$username
+    --out=$identity_path
+    --format=file
+    --ttl=2160h | ignore
+
+  docker cp $"($image_name):($identity_path)" $"($username).identity"
+
+  print "logging in via tsh..."
 }
 
 def ensure-redis-cluster [] {

@@ -15,6 +15,7 @@ The host machine must have:
 - nushell (`nu`)
 - `mkcert` (with `mkcert -install` already run once)
 - `openssl`
+- `oathtool` and `zbarimg` (`brew install oath-toolkit zbar`)
 - `tsh` / `tctl` on PATH **or** the agent uses the ones from the bin dir after login
 
 ## Inputs required before starting
@@ -84,18 +85,21 @@ This:
 1. Creates the `<cluster_namespace>` Docker network
 2. Generates mkcert TLS certs for `localhost` and `<cluster_namespace>-teleport`
 3. Builds and starts the Teleport container (proxy + auth + db_service + ssh_service)
-4. Prints a one-time user-invite URL — **capture it and complete setup via browser**
+4. Creates the `teleport-admin` user and writes a signed identity file to `teleport-admin.identity` in the worktree
 
-After the invite link is printed, the agent cannot complete the browser-based registration. Pause and ask the user to:
-1. Open the invite URL in a browser
-2. Register (set password + MFA)
-3. Run `tsh login --proxy=localhost:<proxy_port> --user=teleport-admin` in their terminal
+After the command completes, the agent cannot call `tsh login` — this step must be done by the user. Pause and ask the user to run:
+
+```bash
+TELEPORT_HOME="$WORKTREE_PATH/.tsh" tsh login --proxy=localhost:<proxy_port> --identity="$WORKTREE_PATH/teleport/teleport-admin.identity"
+```
 
 Once the user confirms they are logged in, continue.
 
-### Important: tsh/tctl after login
+### Important: TELEPORT_HOME and tsh/tctl after login
 
-After `tsh login`, the `tsh` and `tctl` on the host PATH will work for managing the cluster. The agent can run them directly. The in-cluster binaries (inside `teleport_bin_dir`) are Linux ELF binaries used inside Docker only — do not try to execute them directly on macOS.
+`tsh` stores session data in `~/.tsh` by default. To keep each cluster's state isolated (critical when multiple agents run the skill concurrently), every `tsh` and `tctl` command — without exception — must be prefixed with `TELEPORT_HOME="$WORKTREE_PATH/.tsh"`. This applies to every command the agent runs for the lifetime of the cluster.
+
+The in-cluster binaries (inside `teleport_bin_dir`) are Linux ELF binaries used inside Docker only — do not try to execute them directly on macOS.
 
 ## Step 4: Apply roles (optional but common)
 
@@ -104,11 +108,11 @@ The `roles/` directory contains pre-built role YAMLs. Apply whichever are releva
 ```bash
 # Example: apply all roles
 for f in "$WORKTREE_PATH/roles/"*.yaml; do
-  tctl create -f "$f"
+  TELEPORT_HOME="$WORKTREE_PATH/.tsh" tctl create -f "$f"
 done
 
 # Or one at a time:
-tctl create -f "$WORKTREE_PATH/roles/aup-best-effort-drop.yaml"
+TELEPORT_HOME="$WORKTREE_PATH/.tsh" tctl create -f "$WORKTREE_PATH/roles/aup-best-effort-drop.yaml"
 ```
 
 Available roles:
@@ -124,9 +128,9 @@ Available roles:
 Assign roles to the `alice` Teleport user (the standard test user) with:
 
 ```bash
-tctl users update alice --set-roles=access,<role-name>
+TELEPORT_HOME="$WORKTREE_PATH/.tsh" tctl users update alice --set-roles=access,<role-name>
 # or create alice if needed:
-tctl users add alice --roles=access,<role-name> --db-users='*' --db-names='*'
+TELEPORT_HOME="$WORKTREE_PATH/.tsh" tctl users add alice --roles=access,<role-name> --db-users='*' --db-names='*'
 ```
 
 ## Step 5: Bring up a database
@@ -158,19 +162,19 @@ This signs database certs via `tctl auth sign`, builds the DB Docker image, star
 
 ```bash
 # List available databases
-tsh db ls
+TELEPORT_HOME="$WORKTREE_PATH/.tsh" tsh db ls
 
 # Log in to a specific database
-tsh db login <db-name>
+TELEPORT_HOME="$WORKTREE_PATH/.tsh" tsh db login <db-name>
 
 # Get connection info
-tsh db config <db-name>
+TELEPORT_HOME="$WORKTREE_PATH/.tsh" tsh db config <db-name>
 
 # Connect via tsh proxy (for postgres example):
-tsh db connect <db-name>
+TELEPORT_HOME="$WORKTREE_PATH/.tsh" tsh db connect <db-name>
 
 # Or get the connection string and use a native client:
-tsh db config --format=cmd <db-name>
+TELEPORT_HOME="$WORKTREE_PATH/.tsh" tsh db config --format=cmd <db-name>
 ```
 
 ### Testing auto user provisioning (AUP)
@@ -178,14 +182,14 @@ tsh db config --format=cmd <db-name>
 AUP creates and drops the connecting Teleport user inside the database automatically. To test:
 
 1. Apply one of the `aup-*` roles and assign it to `alice`
-2. Connect as alice: `tsh db connect <db-name> --db-user=alice`
+2. Connect as alice: `TELEPORT_HOME="$WORKTREE_PATH/.tsh" tsh db connect <db-name> --db-user=alice`
 3. Verify the user was created: inside the DB, check `\du` (postgres) or `SHOW GRANTS FOR 'alice'@'%'` (mysql)
 4. Disconnect and verify the user was dropped (for `best_effort_drop` mode)
 
 For postgres AUP the `creator` role must exist and `teleport-admin` must have ADMIN OPTION on it — `scripts/aup.sql` sets this up. Run it if needed:
 
 ```bash
-tsh db connect postgres --db-user=teleport-admin --db-name=postgres < "$WORKTREE_PATH/scripts/aup.sql"
+TELEPORT_HOME="$WORKTREE_PATH/.tsh" tsh db connect postgres --db-user=teleport-admin --db-name=postgres < "$WORKTREE_PATH/scripts/aup.sql"
 ```
 
 ### Testing DB permissions management (DBPM)
@@ -195,7 +199,7 @@ DBPM grants/revokes fine-grained table permissions on connect/disconnect. To tes
 1. Apply one of the `dbpm-*` roles and assign it to `alice`
 2. Run the setup SQL to create test tables:
    ```bash
-   tsh db connect postgres --db-user=teleport-admin --db-name=postgres < "$WORKTREE_PATH/scripts/db_permissions_testing.sql"
+   TELEPORT_HOME="$WORKTREE_PATH/.tsh" tsh db connect postgres --db-user=teleport-admin --db-name=postgres < "$WORKTREE_PATH/scripts/db_permissions_testing.sql"
    ```
 3. Connect as alice and verify SELECT works on `allowed_test_table` but not `disallowed_test_table`
 
@@ -224,6 +228,7 @@ git -C "$DEFAULT_WORKTREE" branch -d "$CLUSTER_NAMESPACE"
 - **Do not add new `ensure-*` or `wipe-*` functions to `dev.nu`.** If the existing functions don't cover what you need, stop and ask the user for guidance — you have probably misunderstood the task.
 - **Clusters are short-lived.** Do not leave containers running after testing is complete.
 - **Only one cluster per worktree.** Each worktree has its own `cluster_namespace` and port; do not try to run two logical clusters from the same worktree.
+- **Always set `TELEPORT_HOME="$WORKTREE_PATH/.tsh"` on every single `tsh` and `tctl` command.** Never run either binary without it — omitting it will read/write the shared `~/.tsh` and corrupt state for other running clusters.
 
 ## Troubleshooting
 
@@ -231,7 +236,7 @@ git -C "$DEFAULT_WORKTREE" branch -d "$CLUSTER_NAMESPACE"
 |---------|-------------|-----|
 | `Are you sure you want to run Darwin build` | `teleport_bin_dir` points to macOS binaries | Use a Linux build directory |
 | `docker: Error response from daemon: Conflict` | Container name already in use | Run `nu dev.nu down --type <x>` first |
-| `tctl: command not found` | Not logged in / tsh not on PATH | Run `tsh login` first |
+| `tctl: command not found` | Not logged in / tsh not on PATH | Ask user to run `tsh login` with `TELEPORT_HOME` set |
 | `tctl auth sign` fails | Teleport not fully started yet | Wait 5–10 s, retry |
 | redis-cluster nodes unhealthy | Cluster create ran too early | Increase the `sleep 5sec` in `ensure-redis-cluster` or rerun cluster create manually |
 | Port 3080 in use | Another cluster or leftover container | Pick a different `proxy_port` or stop the conflicting process |
