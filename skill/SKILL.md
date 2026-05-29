@@ -16,13 +16,13 @@ The host machine must have:
 - `mkcert` (with `mkcert -install` already run once)
 - `openssl`
 - `oathtool` and `zbarimg` (`brew install oath-toolkit zbar`)
-- `tsh` / `tctl` on PATH **or** the agent uses the ones from the bin dir after login
+- macOS `tsh`, `tctl`, and `teleport` binaries (provided via `teleport_macos_bin_dir` — no system-wide install needed)
 
 ## Inputs required before starting
 
 You must have two pieces of information before doing anything else:
 
-1. **`teleport_bin_dir`** — absolute path to a directory containing Linux `teleport`, `tsh`, and `tctl` binaries. Confirm the path exists and contains those three files before proceeding.
+1. **`teleport_macos_bin_dir`** — absolute path to a directory containing macOS `teleport`, `tsh`, and `tctl` binaries. It must also contain a `linux/` subdirectory with the corresponding Linux builds (used inside Docker). Confirm the path exists and contains those files before proceeding.
 2. **Purpose of the run** — a short description of what you are testing (e.g. "auto user provisioning best-effort-drop", "redis cluster TLS"). You will use this to derive `cluster_namespace` and choose a port.
 
 If either is missing, ask the user before continuing.
@@ -65,10 +65,12 @@ All subsequent file edits and `nu dev.nu` invocations must happen inside `$WORKT
 Open `$WORKTREE_PATH/dev.nu` and update the three variables at the very top:
 
 ```nushell
-let cluster_namespace = "<chosen namespace>"
-let proxy_port        = "<chosen port>"
-let teleport_bin_dir  = "<absolute path to bin dir>" | path expand
+let cluster_namespace      = "<chosen namespace>"
+let proxy_port             = "<chosen port>"
+let teleport_macos_bin_dir = "<absolute path to macOS bin dir>" | path expand
 ```
+
+`teleport_linux_bin_dir` is derived automatically as `$teleport_macos_bin_dir/linux` and does not need to be edited.
 
 **These three variables must not be changed again for the lifetime of this cluster.** Changing them after containers are running will break everything.
 
@@ -85,21 +87,23 @@ This:
 1. Creates the `<cluster_namespace>` Docker network
 2. Generates mkcert TLS certs for `localhost` and `<cluster_namespace>-teleport`
 3. Builds and starts the Teleport container (proxy + auth + db_service + ssh_service)
-4. Creates the `teleport-admin` user and writes a signed identity file to `teleport-admin.identity` in the worktree
+4. Creates the `teleport-admin` user and writes a signed identity file to `teleport/teleport-admin.identity` in the worktree
 
-After the command completes, the agent cannot call `tsh login` — this step must be done by the user. Pause and ask the user to run:
+After the command completes, log in using the identity file that was just created:
 
 ```bash
 TELEPORT_HOME="$WORKTREE_PATH/.tsh" tsh login --proxy=localhost:<proxy_port> --identity="$WORKTREE_PATH/teleport/teleport-admin.identity"
 ```
 
-Once the user confirms they are logged in, continue.
-
 ### Important: TELEPORT_HOME and tsh/tctl after login
 
 `tsh` stores session data in `~/.tsh` by default. To keep each cluster's state isolated (critical when multiple agents run the skill concurrently), every `tsh` and `tctl` command — without exception — must be prefixed with `TELEPORT_HOME="$WORKTREE_PATH/.tsh"`. This applies to every command the agent runs for the lifetime of the cluster.
 
-The in-cluster binaries (inside `teleport_bin_dir`) are Linux ELF binaries used inside Docker only — do not try to execute them directly on macOS.
+Use the macOS binaries from `teleport_macos_bin_dir` for all host-side `tsh` and `tctl` commands. The Linux builds at `teleport_linux_bin_dir` (`$teleport_macos_bin_dir/linux`) are used only inside Docker containers — do not execute them directly on macOS. In all command examples below, `tsh` and `tctl` refer to the macOS binaries; export the bin dir onto PATH so the bare names resolve correctly:
+
+```bash
+export PATH="<teleport_macos_bin_dir>:$PATH"
+```
 
 ## Step 4: Apply roles (optional but common)
 
@@ -137,7 +141,7 @@ TELEPORT_HOME="$WORKTREE_PATH/.tsh" tctl users add alice --roles=access,<role-na
 
 ```bash
 cd "$WORKTREE_PATH"
-nu dev.nu up --type <db>
+TELEPORT_HOME="$WORKTREE_PATH/.tsh" nu dev.nu up --type <db>
 ```
 
 Supported `--type` values: `postgres`, `mysql`, `mariadb`, `mongodb`, `cockroachdb`, `redis`, `redis-cluster`
@@ -146,11 +150,11 @@ This signs database certs via `tctl auth sign`, builds the DB Docker image, star
 
 ### Database-specific notes
 
-**postgres** — uses cert-based auth (`hostssl … cert`). The `teleport-admin` DB user is created as SUPERUSER by the init script (`scripts/postgres.sql`). The `creator` role is also created; grant it to test DB-level role assignment.
+**postgres** — uses cert-based auth (`hostssl … cert`).
 
 **mysql / mariadb** — use `tctl auth sign --format=db`. Init SQL in `mysql/init.sql` / `mariadb/init.sql` creates the `teleport-admin` user.
 
-**mongodb** — uses `--format=mongodb`. The `teleport-admin` user must be created inside mongo after startup if not done by init.
+**mongodb** — uses `--format=mongodb`. The `teleport-admin` user is created by `mongodb/init.js`.
 
 **cockroachdb** — uses `--format=cockroachdb`. Needs `certs/` subdirectory (created by the script).
 
@@ -209,8 +213,8 @@ Always tear down in reverse order: databases first, then Teleport.
 
 ```bash
 cd "$WORKTREE_PATH"
-nu dev.nu down --type postgres   # repeat for each DB you started
-nu dev.nu down --type teleport
+TELEPORT_HOME="$WORKTREE_PATH/.tsh" nu dev.nu down --type postgres   # repeat for each DB you started
+TELEPORT_HOME="$WORKTREE_PATH/.tsh" nu dev.nu down --type teleport
 ```
 
 Then remove the worktree:
@@ -223,8 +227,8 @@ git -C "$DEFAULT_WORKTREE" branch -d "$CLUSTER_NAMESPACE"
 ## Guardrails
 
 - **Never edit files outside your worktree.** The `default/` directory and anything else outside `$WORKTREE_PATH` is off-limits.
-- **Never change `cluster_namespace`, `proxy_port`, or `teleport_bin_dir` after the cluster is started.** If you realise you need different values, tear down and start fresh.
-- **Never modify `teleport_bin_dir` contents.** That directory is read-only for the lifetime of the cluster.
+- **Never change `cluster_namespace`, `proxy_port`, or `teleport_macos_bin_dir` after the cluster is started.** If you realise you need different values, tear down and start fresh.
+- **Never modify `teleport_macos_bin_dir` or `teleport_linux_bin_dir` contents.** Those directories are read-only for the lifetime of the cluster.
 - **Do not add new `ensure-*` or `wipe-*` functions to `dev.nu`.** If the existing functions don't cover what you need, stop and ask the user for guidance — you have probably misunderstood the task.
 - **Clusters are short-lived.** Do not leave containers running after testing is complete.
 - **Only one cluster per worktree.** Each worktree has its own `cluster_namespace` and port; do not try to run two logical clusters from the same worktree.
@@ -234,7 +238,7 @@ git -C "$DEFAULT_WORKTREE" branch -d "$CLUSTER_NAMESPACE"
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| `Are you sure you want to run Darwin build` | `teleport_bin_dir` points to macOS binaries | Use a Linux build directory |
+| `Are you sure you want to run Darwin build` | `teleport_linux_bin_dir` contains macOS binaries | Ensure the `linux/` subdirectory of `teleport_macos_bin_dir` contains Linux builds |
 | `docker: Error response from daemon: Conflict` | Container name already in use | Run `nu dev.nu down --type <x>` first |
 | `tctl: command not found` | Not logged in / tsh not on PATH | Ask user to run `tsh login` with `TELEPORT_HOME` set |
 | `tctl auth sign` fails | Teleport not fully started yet | Wait 5–10 s, retry |

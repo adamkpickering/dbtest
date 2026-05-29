@@ -1,12 +1,15 @@
-# This script automates and enhances part of the process described at
-# https://goteleport.com/docs/get-started/deploy-community/. You should
-# have certificates set up via mkcert as described at the beginning of
-# this page.
+# This script automates setup of a teleport cluster and connected databases
+# running in docker. You should have certificates set up via mkcert as described
+# prior to running this.
 
+# Change these variables to suit your deployment
 let cluster_namespace = "local"
-let proxy_hostname = $"($cluster_namespace)-teleport"
 let proxy_port = "3080"
-let teleport_bin_dir = "~/projects/teleport/adamkpickering/db-aup-revocation/build" | path expand
+let teleport_macos_bin_dir = "~/projects/teleport/adamkpickering/db-aup-revocation/build" | path expand
+
+# These variables do not need to be changed
+let teleport_linux_bin_dir = [$teleport_macos_bin_dir linux] | path join
+let proxy_hostname = $"($cluster_namespace)-teleport"
 
 def "main up" [--type: string] {
   if $cluster_namespace not-in (in-use-docker-networks) {
@@ -59,7 +62,7 @@ def in-use-docker-networks [] {
 
 def check-binaries [] {
   # check that we aren't going to try to build with macOS binaries
-  if (file ([$teleport_bin_dir "teleport"] | path join)) =~ "Darwin" {
+  if (file ([$teleport_linux_bin_dir "teleport"] | path join)) =~ "Darwin" {
     error make {msg: "Are you sure you want to run Darwin build of teleport?"}
   }
 }
@@ -164,7 +167,7 @@ CMD [\"teleport\", \"start\"]"
 
   # build main docker image
   print "building docker image..."
-  docker build --quiet --build-context $"bins=($teleport_bin_dir)" --build-context $"mkcertca=(mkcert -CAROOT)" --tag $image_name . | ignore
+  docker build --quiet --build-context $"bins=($teleport_linux_bin_dir)" --build-context $"mkcertca=(mkcert -CAROOT)" --tag $image_name . | ignore
 
   # ensure main container is running and set up
   print $"starting ($image_name) container..."
@@ -627,13 +630,13 @@ def ensure-discovery-service [] {
   $teleport_yaml | save --force teleport.yaml
 
   print "building discovery service image..."
-  docker build --quiet --build-context $"mkcertca=(mkcert -CAROOT)" --build-context $"bins=($teleport_bin_dir)" --tag $image_name . | ignore
+  docker build --quiet --build-context $"mkcertca=(mkcert -CAROOT)" --build-context $"bins=($teleport_linux_bin_dir)" --tag $image_name . | ignore
 
   print $"starting discovery service container..."
   # Note: TELEPORT_TUNNEL_PUBLIC_ADDR is needed for the case where the proxy/auth services
   # are deployed in a local docker container, and are accessed via both localhost (via forwarded
   # ports) and the container name (for database service containers).
-  docker run --quiet --detach --env $"TELEPORT_TUNNEL_PUBLIC_ADDR=($proxy_hostname):3080" --env-file teleport.env --network $cluster_namespace --name $image_name $image_name | ignore
+  docker run --quiet --detach --env $"TELEPORT_TUNNEL_PUBLIC_ADDR=($proxy_hostname):($proxy_port)" --env-file teleport.env --network $cluster_namespace --name $image_name $image_name | ignore
 
   cd ..
 }
