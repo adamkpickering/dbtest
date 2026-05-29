@@ -126,10 +126,10 @@ db_service:
 
 proxy_service:
   enabled: true
-  web_listen_addr: 0.0.0.0:3080
+  web_listen_addr: 0.0.0.0:PORT_SUBSTITUTE
   public_addr:
-  - localhost:3080
-  - IMAGE_NAME:3080
+  - localhost:PORT_SUBSTITUTE
+  - IMAGE_NAME:PORT_SUBSTITUTE
   https_keypairs:
   - key_file: /etc/teleport-tls/localhost-key.pem
     cert_file: /etc/teleport-tls/localhost.pem
@@ -137,7 +137,7 @@ proxy_service:
     cert_file: /etc/teleport-tls/IMAGE_NAME.pem
   https_keypairs_reload_interval: 0s
   acme: {}'
-  $teleport_yaml | str replace --all IMAGE_NAME $image_name | save --force teleport.yaml
+  $teleport_yaml | str replace --all IMAGE_NAME $image_name | str replace --all PORT_SUBSTITUTE $proxy_port | save --force teleport.yaml
 
   print "templating out Dockerfile..."
   let dockerfile = "FROM ubuntu:24.04
@@ -168,7 +168,7 @@ CMD [\"teleport\", \"start\"]"
 
   # ensure main container is running and set up
   print $"starting ($image_name) container..."
-  docker run --quiet --detach --network $cluster_namespace --publish 3080:3080 --name $image_name $image_name | ignore
+  docker run --quiet --detach --network $cluster_namespace --publish $"($proxy_port):($proxy_port)" --name $image_name $image_name | ignore
 
   sleep 3sec # give teleport some time to start up
   create-teleport-user teleport-admin
