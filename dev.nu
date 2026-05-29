@@ -277,15 +277,11 @@ def ensure-redis-cluster [] {
   openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 365 -out client.crt -extfile ssl-client.conf -extensions client_cert | complete | ignore
 
   print "running cluster create command..."
+  let node_addrs = $node_names | each { |n| $"($n):6379" }
   (docker run --rm -it --network $cluster_namespace --name $bootstrap_container_name -v $"(PWD):/tls:ro" redis:7.2.3
     redis-cli --tls --cacert /tls/ca.crt --cert /tls/client.crt --key /tls/client.key
     --user alice -a test --cluster create
-    teldev-redis-cluster-node-1:6379
-    teldev-redis-cluster-node-2:6379
-    teldev-redis-cluster-node-3:6379
-    teldev-redis-cluster-node-4:6379
-    teldev-redis-cluster-node-5:6379
-    teldev-redis-cluster-node-6:6379
+    ...$node_addrs
     --cluster-replicas 1 --cluster-yes | ignore)
 
   cd ..
