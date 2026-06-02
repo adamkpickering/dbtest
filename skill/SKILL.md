@@ -16,7 +16,7 @@ The host machine must have:
 - `mkcert` (with `mkcert -install` already run once)
 - `openssl`
 - `oathtool` and `zbarimg` (`brew install oath-toolkit zbar`)
-- macOS `tsh`, `tctl`, and `teleport` binaries (provided via `teleport_macos_bin_dir` — no system-wide install needed)
+- macOS `tsh` and `tctl` binaries (provided via `teleport_macos_bin_dir` — no system-wide install needed)
 
 ## Inputs required before starting
 
