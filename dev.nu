@@ -68,9 +68,9 @@ def check-binaries [] {
 }
 
 def check-host-utilities [] {
-  for utility in [oathtool zbarimg] {
+  for utility in [oathtool] {
     if (which $utility | is-empty) {
-      error make {msg: $"required utility not found: ($utility) — install with: brew install oath-toolkit zbar"}
+      error make {msg: $"required utility not found: ($utility) — install with: brew install oath-toolkit"}
     }
   }
 }
@@ -193,6 +193,14 @@ def wipe-teleport [] {
   cd ..
 }
 
+# Decodes a QR code image and returns the embedded text. Uses the pure-Go
+# gozxing decoder in scripts/qrdecode rather than zbarimg, whose homebrew build
+# segfaults on macOS. `cd` here is scoped to this command and does not leak.
+def decode-qr [image_path: string] {
+  cd scripts/qrdecode
+  go run . $image_path | str trim
+}
+
 def create-teleport-user [username: string, password: string = "asdfasdfasdf"] {
   let image_name = $proxy_hostname
   let proxy = $"localhost:($proxy_port)"
@@ -210,7 +218,7 @@ def create-teleport-user [username: string, password: string = "asdfasdfasdf"] {
     {deviceType: "totp", deviceUsage: "mfa"})
 
   $challenge.totp.qrCode | decode base64 | save --force /tmp/tp-qr.png
-  let otpauth = (zbarimg --quiet --raw /tmp/tp-qr.png | str trim)
+  let otpauth = (decode-qr /tmp/tp-qr.png)
   let secret = ($otpauth | parse --regex 'secret=(?<s>[A-Z2-7]+)' | get s.0)
 
   let code = (oathtool --totp -b $secret | str trim)
